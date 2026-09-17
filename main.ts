@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
   const bearerKey = authHeader.replace(/^Bearer\s+/i, "").trim();
   const apiKey = req.headers.get("x-goog-api-key") || bearerKey;
 
-  // 匹配 /models (兼容任意前缀/大小写)
+  // 1. 模型列表
   if (path.includes("/models")) {
     return new Response(
       JSON.stringify({
@@ -31,25 +31,28 @@ Deno.serve(async (req) => {
     );
   }
 
-  // 匹配 /chat/completions
+  // 2. 聊天补全 -> 转发到 Vertex AI
   if (path.includes("/chat/completions")) {
     try {
       if (!apiKey) {
         return new Response(
-          JSON.stringify({ error: { message: "Missing Google API Key (AQ...)" } }),
+          JSON.stringify({ error: { message: "Missing GCP API Key" } }),
           { status: 401, headers: corsHeaders }
         );
       }
 
       const body = await req.json();
       const model = body.model || "gemini-1.5-flash";
+      const projectId = "myvps-235201"; // 对应你截图里的 Project ID
+      const location = "us-central1";   // Vertex AI 区域，可按需调整
 
       const contents = (body.messages || []).map((m: any) => ({
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content || "" }],
       }));
 
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      // Vertex AI REST API 端点 (带 API Key 鉴权形式)
+      const targetUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent?key=${apiKey}`;
 
       const geminiRes = await fetch(targetUrl, {
         method: "POST",
@@ -60,7 +63,12 @@ Deno.serve(async (req) => {
       const geminiData = await geminiRes.json();
       if (!geminiRes.ok) {
         return new Response(
-          JSON.stringify({ error: { message: geminiData.error?.message || "Gemini API error" } }),
+          JSON.stringify({
+            error: {
+              message: geminiData.error?.message || `Vertex AI error status ${geminiRes.status}`,
+              details: geminiData.error || geminiData,
+            },
+          }),
           { status: geminiRes.status, headers: corsHeaders }
         );
       }
