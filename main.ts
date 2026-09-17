@@ -24,6 +24,7 @@ Deno.serve(async (req) => {
         object: "list",
         data: [
           { id: "gemini-1.5-flash", object: "model", created: 1710000000, owned_by: "google" },
+          { id: "gemini-1.5-flash-002", object: "model", created: 1710000000, owned_by: "google" },
           { id: "gemini-1.5-pro", object: "model", created: 1710000000, owned_by: "google" },
         ],
       }),
@@ -42,22 +43,37 @@ Deno.serve(async (req) => {
       }
 
       const body = await req.json();
-      const model = body.model || "gemini-1.5-flash";
+      const rawModel = body.model || "gemini-1.5-flash";
+      
+      // 映射模型名到 AI Studio 稳定可用标识
+      let model = rawModel;
+      if (rawModel.includes("gemini-1.5-flash") && !rawModel.includes("-002") && !rawModel.includes("-001")) {
+        model = "gemini-1.5-flash"; // 保持或映射
+      }
 
-      // 转换 OpenAI messages 格式 -> Gemini contents 格式
       const contents = (body.messages || []).map((m: any) => ({
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content || "" }],
       }));
 
-      // 纯正的 AI Studio 官方端点
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      // 尝试主路径 v1beta
+      let targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-      const geminiRes = await fetch(targetUrl, {
+      let geminiRes = await fetch(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents }),
       });
+
+      // 如果提示找不到，尝试降级/带版本后缀再打一次
+      if (!geminiRes.ok && model === "gemini-1.5-flash") {
+        targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key=${apiKey}`;
+        geminiRes = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents }),
+        });
+      }
 
       const geminiData = await geminiRes.json();
       if (!geminiRes.ok) {
@@ -66,6 +82,7 @@ Deno.serve(async (req) => {
             error: {
               message: geminiData.error?.message || `AI Studio error status ${geminiRes.status}`,
               code: geminiRes.status,
+              tried_model: model,
             },
           }),
           { status: geminiRes.status, headers: corsHeaders }
@@ -79,7 +96,7 @@ Deno.serve(async (req) => {
           id: "chatcmpl-" + Date.now(),
           object: "chat.completion",
           created: Math.floor(Date.now() / 1000),
-          model: model,
+          model: rawModel,
           choices: [
             {
               index: 0,
