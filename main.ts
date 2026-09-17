@@ -23,9 +23,8 @@ Deno.serve(async (req) => {
       JSON.stringify({
         object: "list",
         data: [
+          { id: "gemini-3.6-flash", object: "model", created: 1710000000, owned_by: "google" },
           { id: "gemini-3.7-flash", object: "model", created: 1710000000, owned_by: "google" },
-          { id: "gemini-3.5-flash", object: "model", created: 1710000000, owned_by: "google" },
-          { id: "gemini-2.5-flash", object: "model", created: 1710000000, owned_by: "google" },
         ],
       }),
       { status: 200, headers: corsHeaders }
@@ -43,12 +42,12 @@ Deno.serve(async (req) => {
       }
 
       const body = await req.json();
-      const rawModel = body.model || "gemini-3.7-flash";
+      const rawModel = body.model || "gemini-3.6-flash";
       
-      // 兼容旧模型名映射到当前可用生产模型
+      // 自动把旧版本映射到 Google 官方推荐的 3.6-flash
       let model = rawModel;
-      if (model.includes("1.5-flash")) {
-        model = "gemini-3.7-flash";
+      if (model.includes("2.5-flash") || model.includes("1.5-flash") || model.includes("3.5-flash")) {
+        model = "gemini-3.6-flash";
       }
 
       const contents = (body.messages || []).map((m: any) => ({
