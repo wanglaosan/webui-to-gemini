@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
   const bearerKey = authHeader.replace(/^Bearer\s+/i, "").trim();
   const apiKey = req.headers.get("x-goog-api-key") || bearerKey;
 
-  // 1. 模型列表
+  // 1. OpenAI 兼容模型列表
   if (path.includes("/models")) {
     return new Response(
       JSON.stringify({
@@ -31,28 +31,27 @@ Deno.serve(async (req) => {
     );
   }
 
-  // 2. 聊天补全 -> 转发到 Vertex AI
+  // 2. OpenAI 兼容聊天补全 -> 转发至 Google AI Studio
   if (path.includes("/chat/completions")) {
     try {
       if (!apiKey) {
         return new Response(
-          JSON.stringify({ error: { message: "Missing GCP API Key" } }),
+          JSON.stringify({ error: { message: "Missing Google AI Studio API Key" } }),
           { status: 401, headers: corsHeaders }
         );
       }
 
       const body = await req.json();
       const model = body.model || "gemini-1.5-flash";
-      const projectId = "myvps-235201"; // 对应你截图里的 Project ID
-      const location = "us-central1";   // Vertex AI 区域，可按需调整
 
+      // 转换 OpenAI messages 格式 -> Gemini contents 格式
       const contents = (body.messages || []).map((m: any) => ({
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content || "" }],
       }));
 
-      // Vertex AI REST API 端点 (带 API Key 鉴权形式)
-      const targetUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent?key=${apiKey}`;
+      // 纯正的 AI Studio 官方端点
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
       const geminiRes = await fetch(targetUrl, {
         method: "POST",
@@ -65,8 +64,8 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             error: {
-              message: geminiData.error?.message || `Vertex AI error status ${geminiRes.status}`,
-              details: geminiData.error || geminiData,
+              message: geminiData.error?.message || `AI Studio error status ${geminiRes.status}`,
+              code: geminiRes.status,
             },
           }),
           { status: geminiRes.status, headers: corsHeaders }
